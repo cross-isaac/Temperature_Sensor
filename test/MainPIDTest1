@@ -1,0 +1,125 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <Adafruit_MAX31856.h>
+#include <PID_v1.h>
+
+// SPI pins for MAX31856
+#define MAX_CS     5
+#define MAX_DI    23
+#define MAX_DO    19
+#define MAX_CLK   18
+
+// Relay module “IN” pin
+#define RELAY_PIN 16
+
+// PID window (ms)
+const unsigned long WINDOW_MS = 2000;
+
+// PID parameters & variables
+double Setpoint = -273;   // initial target °C
+double Input, Output;
+double Kp = 20, Ki = 0.5, Kd = 100;
+
+// PID controller
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+// Thermocouple amplifier
+Adafruit_MAX31856 maxThermo(MAX_CS, MAX_DI, MAX_DO, MAX_CLK);
+
+unsigned long windowStart;
+
+void setup(){
+  Serial.begin(115200);
+  while(!Serial) delay(10);
+
+  Serial.println();
+  Serial.println("=== PID bench test ===");
+  Serial.print  ("Starting Setpoint = ");
+  Serial.print  (Setpoint, 1);
+  Serial.println(" °C");
+  Serial.println("Type a new temperature and press ENTER to change setpoint.");
+  Serial.println();
+
+  // Relay (active-LOW: LOW=closed, HIGH=open)
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);  // start CLOSED = no power
+
+  // SPI & MAX31856 init
+  SPI.begin();
+  if (!maxThermo.begin()) {
+    Serial.println("MAX31856 not found! Check wiring.");
+    while (1) delay(100);
+  }
+  maxThermo.setThermocoupleType(MAX31856_TCTYPE_K);
+
+  // PID
+  myPID.SetOutputLimits(0, WINDOW_MS);
+  myPID.SetMode(AUTOMATIC);
+
+  windowStart = millis();
+}
+
+void loop(){
+  // --- Check for new setpoint on Serial ---
+  if (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) {
+      double newSP = line.toFloat();
+      if (newSP > -1000 && newSP < 1000) {  // simple sanity check
+        Setpoint = newSP;
+        Serial.print(">>> Setpoint updated to ");
+        Serial.print(Setpoint, 1);
+        Serial.println(" °C");
+      } else {
+        Serial.print("Invalid input: ");
+        Serial.println(line);
+      }
+    }
+  }
+
+  // 1) Read temperature
+  Input = maxThermo.readThermocoupleTemperature();
+  uint8_t fault = maxThermo.readFault();
+
+  // 2) Compute PID only if valid
+  if (!isnan(Input) && fault == 0) {
+    myPID.Compute();
+  } else {
+    Output = 0;   // zero on-time = always closed
+    Serial.println("Sensor fault/NaN → relay CLOSED");
+  }
+
+  // 3) Time-proportional drive
+  unsigned long now = millis();
+  if (now - windowStart > WINDOW_MS) {
+    windowStart += WINDOW_MS;
+  }
+
+  // If within the ON portion of window, OPEN relay → power on
+  if ((now - windowStart) < (unsigned long)Output) {
+    digitalWrite(RELAY_PIN, HIGH);
+  } else {
+    digitalWrite(RELAY_PIN, LOW);
+  }
+
+  // 4) Telemetry once a second
+  static unsigned long lastPrint = 0;
+  if (now - lastPrint >= 1000) {
+    Serial.print("T=");
+    if (isnan(Input)) Serial.print("NaN");
+    else              Serial.print(Input, 1);
+    Serial.print(" °C  SP=");
+    Serial.print(Setpoint, 1);
+    Serial.print(" °C  Out=");
+    Serial.print(Output);
+    Serial.print(" ms  Relay=");
+    Serial.println(digitalRead(RELAY_PIN)
+      ? "OPEN (power ON)"
+      : "CLOSED (power OFF)");
+    lastPrint = now;
+  }
+
+  delay(50);
+}
+

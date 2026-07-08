@@ -1,0 +1,58 @@
+#include <WiFi.h>
+#include <SPI.h>
+#include "Adafruit_MAX31856.h"
+#include "AdafruitIO_WiFi.h"
+
+// WiFi & Adafruit IO credentials
+#define IO_USERNAME  "isaaccross"
+#define IO_KEY       "aio_SdBJ03cqugOe6CBgaGnUMYC1Eler"
+#define WIFI_SSID    "OdomLab01"
+#define WIFI_PASS    ""
+
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, WIFI_SSID, WIFI_PASS);
+AdafruitIO_Feed *tempFeed = io.feed("MAX-tempC");
+
+// MAX31856 SPI Pins
+#define MAX_CS     5
+#define MAX_DI    23
+#define MAX_DO    19
+#define MAX_CLK   18
+Adafruit_MAX31856 maxThermo(MAX_CS, MAX_DI, MAX_DO, MAX_CLK);
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial);  // Wait for Serial monitor
+
+  // Connect to WiFi & Adafruit IO
+  Serial.print("Connecting to Adafruit IO");
+  io.connect();
+  while (io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.println(io.statusText());
+
+  // Start SPI and MAX31856
+  SPI.begin();
+  if (!maxThermo.begin()) {
+    Serial.println("MAX31856 not found! Check wiring.");
+    while (1) delay(10);
+  }
+
+  maxThermo.setThermocoupleType(MAX31856_TCTYPE_K);
+}
+
+void loop() {
+  io.run();  // Maintain Adafruit IO connection
+
+  float tempC = maxThermo.readThermocoupleTemperature();
+  if (!isnan(tempC)) {
+    Serial.printf("Temperature = %.2f °C\n", tempC);
+    tempFeed->save(tempC);
+  } else {
+    Serial.println("Error: NaN or sensor fault");
+  }
+
+  delay(2000);  // Every 2 seconds
+}

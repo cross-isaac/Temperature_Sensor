@@ -1,0 +1,65 @@
+#include <WiFi.h>
+#include "AdafruitIO_WiFi.h"
+
+// fill in your credentials!
+#define IO_USERNAME  "isaaccross"
+#define IO_KEY       "aio_SdBJ03cqugOe6CBgaGnUMYC1Eler"
+#define WIFI_SSID    "OdomLab01"
+#define WIFI_PASS    ""
+
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, WIFI_SSID, WIFI_PASS);
+
+// thermocouple pins & conversion constants
+static const int TH_A       = 32;   // ADC1_CH4
+static const int TH_B       = 33;   // ADC1_CH5
+const float ADC_MAX      = 4095.0;
+const float V_MAX        = 3.6;
+const float VREF_CJC     = 1.25;
+const float MV_PER_DEG   = 0.005;
+
+
+AdafruitIO_Feed *tempA = io.feed("D15-tempC");
+AdafruitIO_Feed *tempB = io.feed("D4-tempC");
+
+float readTemp(int pin){
+  int raw = analogRead(pin);
+  float V   = raw * V_MAX / ADC_MAX;
+  return (V - VREF_CJC) / MV_PER_DEG;
+}
+
+void setup() {
+  Serial.begin(115200);
+  while(!Serial);                // wait for serial console
+
+  // connect to Adafruit IO
+  Serial.print("Connecting to Adafruit IO");
+  io.connect();                  // <<< replace io.begin() with io.connect()
+
+  // wait for a connection
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.println(io.statusText());
+
+  // ADC setup
+  analogSetWidth(12);
+  analogSetPinAttenuation(TH_A, ADC_11db);
+  analogSetPinAttenuation(TH_B, ADC_11db);
+}
+
+bool toggle = false;
+
+void loop() {
+  io.run();
+  toggle = !toggle;
+  if (toggle) {
+    tempA->save(readTemp(TH_A));
+    Serial.printf("D15=%.2f\n", readTemp(TH_A));
+  } else {
+    tempB->save(readTemp(TH_B));
+    Serial.printf("D4=%.2f\n", readTemp(TH_B));
+  }
+  delay(2000);
+}

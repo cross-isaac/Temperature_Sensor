@@ -1,0 +1,26 @@
+# RTD Temperature Logger — Python Dependencies
+# -----------------------------------------------
+# SETUP INSTRUCTIONS
+#
+# 1. Make sure Python is installed.
+#    Open a terminal and type:  python --version
+#    If you get an error, download Python from https://www.python.org/downloads/
+#    During install, CHECK THE BOX that says "Add Python to PATH", then restart VS Code.
+#
+# 2. In VS Code, open a terminal (Terminal > New Terminal from the top menu).
+#
+# 3. Navigate to the folder containing this file, e.g.:
+#    cd C:\Users\ikcco\OneDrive\Desktop\IsaacCross_Thesis_Stuff\TempReading
+#
+# 4. Run this command to install everything:
+#    pip install -r requirements.txt
+#
+# 5. Once done, run the logger with:
+#    python rtd_logger.py
+#
+# NOTE: Close the PlatformIO serial monitor before running the logger —
+#       two programs cannot use the same COM port at the same time.
+# -----------------------------------------------
+
+pyserial
+matplotlib

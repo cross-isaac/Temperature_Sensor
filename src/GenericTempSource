@@ -1,0 +1,122 @@
+#include <SPI.h>
+#include "Adafruit_MAX31865.h"
+
+// ——— UART2 for reception ———
+#define RX2_PIN   16   // wire this to Board 1 pin 17 (TX)
+#define TX2_PIN   17   // not used here
+
+void setup() {
+  Serial.begin(115200);     // USB serial → your PC
+  Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
+
+  Serial.println("Board 2 ready — waiting for data...");
+}
+
+void loop() {
+  // Read complete lines as they arrive
+  if (Serial2.available()) {
+    String line = Serial2.readStringUntil('\n');
+    line.trim();
+
+    if (line.startsWith("T,")) {
+      // Parse temperature value after the comma
+      float tempC = line.substring(2).toFloat();
+      Serial.print("RTD Temp: ");
+      Serial.print(tempC, 2);
+      Serial.println(" °C");
+
+    } else if (line.startsWith("FAULT,")) {
+      Serial.print("RTD FAULT received: ");
+      Serial.println(line.substring(6));
+
+    } else if (line.length() > 0) {
+      // Catch-all for anything unexpected
+      Serial.print("Unknown msg: ");
+      Serial.println(line);
+    }
+  }
+}
+
+
+#include <SPI.h>
+#include "Adafruit_MAX31865.h"
+
+// ——— UART2 for reception ———
+#define RX2_PIN   16   // wire this to Board 1 pin 17 (TX)
+#define TX2_PIN   17   // not used here
+
+void setup() {
+  Serial.begin(115200);     // USB serial → your PC
+  Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
+
+  Serial.println("Board 2 ready — waiting for data...");
+}
+
+void loop() {
+  // Read complete lines as they arrive
+  if (Serial2.available()) {
+    String line = Serial2.readStringUntil('\n');
+    line.trim();
+
+    if (line.startsWith("T,")) {
+      // Parse temperature value after the comma
+      float tempC = line.substring(2).toFloat();
+      Serial.print("RTD Temp: ");
+      Serial.print(tempC, 2);
+      Serial.println(" °C");
+
+    } else if (line.startsWith("FAULT,")) {
+      Serial.print("RTD FAULT received: ");
+      Serial.println(line.substring(6));
+
+    } else if (line.length() > 0) {
+      // Catch-all for anything unexpected
+      Serial.print("Unknown msg: ");
+      Serial.println(line);
+    }
+  }
+}
+
+#include <Arduino.h>
+#include <SPI.h>
+#include "Adafruit_MAX31865.h"
+
+// ——— SPI pin definitions (VSPI) ———
+#define SPI_SCK   18
+#define SPI_MOSI  23
+#define SPI_MISO  19
+#define CS_RTD    15
+
+Adafruit_MAX31865 rtd = Adafruit_MAX31865(CS_RTD, SPI_MOSI, SPI_MISO, SPI_SCK);
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(CS_RTD, OUTPUT);
+  digitalWrite(CS_RTD, HIGH);
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+  if (!rtd.begin(MAX31865_3WIRE)) {
+    Serial.println("ERROR: MAX31865 not found. Check wiring!");
+    while (1) delay(10);
+  }
+
+  Serial.println("RTD ready.");
+}
+
+void loop() {
+  uint8_t fault = rtd.readFault();
+
+  if (fault == 0) {
+    float tempC = rtd.temperature(100.0, 430.0);
+    // Clean CSV format: "T,23.45"
+    Serial.print("T,");
+    Serial.println(tempC, 2);
+  } else {
+    Serial.print("FAULT,0x");
+    Serial.println(fault, HEX);
+    rtd.clearFault();
+  }
+
+  delay(500);  // 1 second — reduce if you want faster
+}

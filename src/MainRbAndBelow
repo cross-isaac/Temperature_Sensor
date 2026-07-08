@@ -1,0 +1,102 @@
+#include <WiFi.h>
+#include <SPI.h>
+#include "AdafruitIO_WiFi.h"
+#include "Adafruit_MAX31865.h"
+#include "Adafruit_MAX31856.h"
+
+// ——— Wi‑Fi & Adafruit IO credentials ———
+#define IO_USERNAME  "isaaccross"
+#define IO_KEY       "aio_UvjI52XqG6S6FeafZiNMJX3yTVgH"
+#define WIFI_SSID    "Isaac Cross"
+#define WIFI_PASS    "22501780"
+
+// Create an instance of the Adafruit IO WiFi client
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, WIFI_SSID, WIFI_PASS);
+
+// Feeds for RTD and Thermocouple
+AdafruitIO_Feed *rtdFeed = io.feed("MAX-RTD-tempC");
+AdafruitIO_Feed *tcFeed  = io.feed("MAX-TC-tempC");
+
+// ——— SPI pin definitions (VSPI on ESP32) ———
+#define SPI_SCK   18  // VSPI SCLK
+#define SPI_MOSI  23  // VSPI MOSI (DI)
+#define SPI_MISO  19  // VSPI MISO (DO)
+
+// ——— Chip‑select pins (as swapped) ———
+#define CS_RTD    15  // MAX31865 (RTD)
+#define CS_TC     5   // MAX31856 (Thermocouple)
+
+// Instantiate sensor objects
+Adafruit_MAX31865 rtd   = Adafruit_MAX31865(CS_RTD, SPI_MOSI, SPI_MISO, SPI_SCK);
+Adafruit_MAX31856 tcDev = Adafruit_MAX31856(CS_TC,  SPI_MOSI, SPI_MISO, SPI_SCK);
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  Serial.println("\n–– Connecting to Adafruit IO ––");
+
+  // Start the IO connection
+  io.connect();
+  while (io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.println(io.statusText());
+
+  // Ensure CS lines idle HIGH
+  pinMode(CS_RTD, OUTPUT);  digitalWrite(CS_RTD, HIGH);
+  pinMode(CS_TC,  OUTPUT);  digitalWrite(CS_TC,  HIGH);
+
+  // Start hardware SPI on VSPI pins
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+  // Initialize the RTD (MAX31865)
+  if (!rtd.begin(MAX31865_3WIRE)) {
+    Serial.println("Error: MAX31865 not found. Check wiring!");
+    while (1) delay(10);
+  }
+
+  // Initialize the Thermocouple (MAX31856)
+  if (!tcDev.begin()) {
+    Serial.println("Error: MAX31856 not found. Check wiring!");
+    while (1) delay(10);
+  }
+  tcDev.setThermocoupleType(MAX31856_TCTYPE_K);
+
+  Serial.println("Initialization complete.\n");
+}
+
+void loop() {
+  // Keep the connection alive
+  io.run();
+
+  // ——— Read RTD temperature ———
+  float rtdTemp    = rtd.temperature(100.0, 430.0);
+  uint8_t rtdFault = rtd.readFault();
+  if (rtdFault == 0) {
+    Serial.print("RTD Temp: ");
+    Serial.print(rtdTemp, 2);
+    Serial.println(" °C");
+    rtdFeed->save(rtdTemp);
+  } else {
+    Serial.print("RTD Fault: 0x");
+    Serial.println(rtdFault, HEX);
+  }
+
+  // ——— Read Thermocouple temperature ———
+  float tcTemp    = tcDev.readThermocoupleTemperature();
+  if (!isnan(tcTemp)) {
+    Serial.print("TC  Temp: ");
+    Serial.print(tcTemp, 2);
+    Serial.println(" °C");
+    tcFeed->save(tcTemp);
+  } else {
+    uint8_t tcFault = tcDev.readFault();
+    Serial.print("TC  Fault: 0x");
+    Serial.println(tcFault, HEX);
+  }
+
+  Serial.println();
+  delay(10000);  // sample every 10 seconds
+}

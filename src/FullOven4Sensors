@@ -1,0 +1,122 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include "Adafruit_MAX31865.h"
+#include "Adafruit_MAX31856.h"
+
+// ——— SPI pins (VSPI) — D18/D19/D23 on your board ———
+#define SPI_SCK   18
+#define SPI_MOSI  23
+#define SPI_MISO  19
+
+// ——— CS pins — one per sensor ———
+#define CS_RTD  15   // D15 — MAX31865 (RTD)
+#define CS_TC1   5   // D5  — MAX31856 #1
+#define CS_TC2   4   // D4  — MAX31856 #2
+#define CS_TC3   2   // D2  — MAX31856 #3
+
+// ——— Sensor objects ———
+Adafruit_MAX31865 rtd = Adafruit_MAX31865(CS_RTD, SPI_MOSI, SPI_MISO, SPI_SCK);
+Adafruit_MAX31856 tc1 = Adafruit_MAX31856(CS_TC1, SPI_MOSI, SPI_MISO, SPI_SCK);
+Adafruit_MAX31856 tc2 = Adafruit_MAX31856(CS_TC2, SPI_MOSI, SPI_MISO, SPI_SCK);
+Adafruit_MAX31856 tc3 = Adafruit_MAX31856(CS_TC3, SPI_MOSI, SPI_MISO, SPI_SCK);
+
+// ——— Sample interval ———
+#define SAMPLE_MS  2000   // 2 seconds — change as needed
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  // All CS lines idle HIGH before SPI starts
+  pinMode(CS_RTD, OUTPUT); digitalWrite(CS_RTD, HIGH);
+  pinMode(CS_TC1, OUTPUT); digitalWrite(CS_TC1, HIGH);
+  pinMode(CS_TC2, OUTPUT); digitalWrite(CS_TC2, HIGH);
+  pinMode(CS_TC3, OUTPUT); digitalWrite(CS_TC3, HIGH);
+
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+  // ——— Init RTD (MAX31865) ———
+  // Change MAX31865_3WIRE to _2WIRE or _4WIRE to match your PT100 wiring
+  if (!rtd.begin(MAX31865_3WIRE)) {
+    Serial.println("ERROR: MAX31865 (RTD) not found. Check D15 wiring!");
+    while (1) delay(10);
+  }
+  Serial.println("RTD  (D15) ready.");
+
+  // ——— Init thermocouples (MAX31856) ———
+  if (!tc1.begin()) {
+    Serial.println("ERROR: MAX31856 #1 not found. Check D5 wiring!");
+    while (1) delay(10);
+  }
+  tc1.setThermocoupleType(MAX31856_TCTYPE_K);
+  Serial.println("TC1  (D5)  ready.");
+
+  if (!tc2.begin()) {
+    Serial.println("ERROR: MAX31856 #2 not found. Check D4 wiring!");
+    while (1) delay(10);
+  }
+  tc2.setThermocoupleType(MAX31856_TCTYPE_K);
+  Serial.println("TC2  (D4)  ready.");
+
+  if (!tc3.begin()) {
+    Serial.println("ERROR: MAX31856 #3 not found. Check D2 wiring!");
+    while (1) delay(10);
+  }
+  tc3.setThermocoupleType(MAX31856_TCTYPE_K);
+  Serial.println("TC3  (D2)  ready.");
+
+  Serial.println("\nAll sensors ready.\n");
+
+  // CSV header — temp_logger.py uses this to label columns
+  Serial.println("T,RTD,TC1,TC2,TC3");
+}
+
+void loop() {
+  float tempRTD = NAN;
+  float tempTC1 = NAN;
+  float tempTC2 = NAN;
+  float tempTC3 = NAN;
+
+  // RTD
+  uint8_t rtdFault = rtd.readFault();
+  if (rtdFault == 0) {
+    tempRTD = rtd.temperature(100.0, 430.0);
+  } else {
+    Serial.print("FAULT_RTD,0x");
+    Serial.println(rtdFault, HEX);
+    rtd.clearFault();
+  }
+
+  // TC1
+  tempTC1 = tc1.readThermocoupleTemperature();
+  if (isnan(tempTC1)) {
+    Serial.print("FAULT_TC1,0x");
+    Serial.println(tc1.readFault(), HEX);
+  }
+
+  // TC2
+  tempTC2 = tc2.readThermocoupleTemperature();
+  if (isnan(tempTC2)) {
+    Serial.print("FAULT_TC2,0x");
+    Serial.println(tc2.readFault(), HEX);
+  }
+
+  // TC3
+  tempTC3 = tc3.readThermocoupleTemperature();
+  if (isnan(tempTC3)) {
+    Serial.print("FAULT_TC3,0x");
+    Serial.println(tc3.readFault(), HEX);
+  }
+
+  // One CSV row per sample: T,<RTD>,<TC1>,<TC2>,<TC3>
+  Serial.print("T,");
+  if (!isnan(tempRTD)) Serial.print(tempRTD, 2); else Serial.print("nan");
+  Serial.print(",");
+  if (!isnan(tempTC1)) Serial.print(tempTC1, 2); else Serial.print("nan");
+  Serial.print(",");
+  if (!isnan(tempTC2)) Serial.print(tempTC2, 2); else Serial.print("nan");
+  Serial.print(",");
+  if (!isnan(tempTC3)) Serial.println(tempTC3, 2); else Serial.println("nan");
+
+  delay(SAMPLE_MS);
+}

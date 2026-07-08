@@ -1,0 +1,113 @@
+#include "AdafruitIO_WiFi.h"
+#include <Adafruit_MAX31856.h>
+#include <SPI.h>
+
+// ---------- WiFi & Adafruit IO Credentials ----------
+#define IO_USERNAME  "isaaccross"
+#define IO_KEY       "aio_SdBJ03cqugOe6CBgaGnUMYC1Eler"
+#define WIFI_SSID    "OdomLab01"
+#define WIFI_PASS    ""  // Fill this in if needed
+
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, WIFI_SSID, WIFI_PASS);
+
+// ---------- Feeds ----------
+AdafruitIO_Feed *tempFeed = io.feed("MAX-tempC");
+AdafruitIO_Feed *relayFeed = io.feed("relayOn");
+AdafruitIO_Feed *safetyEnableFeed = io.feed("temp_safety_enabled");
+
+// ---------- MAX31856 SPI Pins ----------
+#define MAX_CS   5
+#define MAX_DI   23
+#define MAX_DO   19
+#define MAX_CLK  18
+Adafruit_MAX31856 maxThermo(MAX_CS, MAX_DI, MAX_DO, MAX_CLK);
+
+// ---------- Relay Control ----------
+#define RELAY_PIN 16
+bool relayState = false;
+
+// ---------- Hardcoded Hold Temperature ----------
+float holdTemp = 400;       // <--- Set this to your desired hold temp
+float maxDelta = 15;        // Acceptable deviation (±15 °C)
+bool safetyEnabled = false;
+
+// ---------- Relay Control Function ----------
+void updateRelay(bool shouldTurnOn) {
+  relayState = shouldTurnOn;
+  digitalWrite(RELAY_PIN, shouldTurnOn ? HIGH : LOW);
+  Serial.print("Relay is now: ");
+  Serial.println(shouldTurnOn ? "ON" : "OFF");
+}
+
+// ---------- Feed Handlers ----------
+void handleRelay(AdafruitIO_Data *data) {
+  if (!safetyEnabled) {
+    updateRelay(data->toInt() == 1);
+  } else {
+    Serial.println("Relay toggle ignored — safety mode active.");
+  }
+}
+
+void handleSafetyToggle(AdafruitIO_Data *data) {
+  safetyEnabled = data->toInt() == 1;
+  Serial.print("Safety mode ");
+  Serial.println(safetyEnabled ? "ENABLED" : "DISABLED");
+}
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial);
+
+  pinMode(RELAY_PIN, OUTPUT);
+  updateRelay(false);  // Start OFF
+
+  // Connect to Adafruit IO
+  Serial.print("Connecting to Adafruit IO");
+  io.connect();
+
+  // Feed handlers
+  relayFeed->onMessage(handleRelay);
+  safetyEnableFeed->onMessage(handleSafetyToggle);
+
+  // Wait for connection
+  while (io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.println(io.statusText());
+
+  // Initialize MAX31856
+  SPI.begin();
+  if (!maxThermo.begin()) {
+    Serial.println("MAX31856 not found! Check wiring.");
+    while (1) delay(10);
+  }
+  maxThermo.setThermocoupleType(MAX31856_TCTYPE_K);
+
+  // Get last known states
+  relayFeed->get();
+  safetyEnableFeed->get();
+}
+
+void loop() {
+  io.run();  // Maintain Adafruit IO connection
+
+  float tempC = maxThermo.readThermocoupleTemperature();
+  if (!isnan(tempC)) {
+    Serial.printf("Temperature = %.2f °C | Hold = %.2f °C\n", tempC, holdTemp);
+    tempFeed->save(tempC);
+
+    if (safetyEnabled) {
+      float delta = abs(tempC - holdTemp);
+      if (delta > maxDelta && relayState) {
+        Serial.printf("⚠️ Out of range by %.2f °C — Disabling relay!\n", delta);
+        updateRelay(false);
+      }
+    }
+  } else {
+    Serial.println("⚠️ Thermocouple read failed or returned NaN");
+  }
+
+  delay(4000);  // Every 2 seconds
+}
