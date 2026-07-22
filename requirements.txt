@@ -15,11 +15,15 @@
 # 4. Run this command to install everything:
 #    pip install -r requirements.txt
 #
-# 5. Once done, run the logger with:
-#    python rtd_logger.py
+# 5. Once done, run the GUI with:
+#    python temp_gui.py
+#    (or a CLI logger, e.g. python temp_logger_arb.py)
 #
 # NOTE: Close the PlatformIO serial monitor before running the logger —
 #       two programs cannot use the same COM port at the same time.
+#
+# tkinter (used by temp_gui.py) ships with the standard CPython installer on
+# Windows, so it is not listed below.
 # -----------------------------------------------
 
 pyserial
