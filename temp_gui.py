@@ -34,6 +34,7 @@ Run:       python temp_gui.py
 import os
 import csv
 import math
+import time
 import queue
 import bisect
 import threading
@@ -44,6 +45,8 @@ from tkinter import ttk, messagebox, filedialog
 
 import serial
 import serial.tools.list_ports
+
+from lab_time import lab_timestamp, session_header
 
 import matplotlib
 matplotlib.use("TkAgg")
@@ -109,10 +112,11 @@ class TempLoggerGUI:
 
         # Full-resolution history: the plot and the CSV back-fill both draw
         # from these (the plot decimates long views down to MAX_PLOT_POINTS).
-        self.hist_labels = []            # "HH:MM:SS" per sample
+        self.hist_epoch = []             # wall-clock time.time() per sample
+        self.hist_labels = []            # "HH:MM:SS" tick label per sample
         self.hist_elapsed = []           # seconds since connect
         self.hist_data = []              # list[list] one column per sensor
-        self.start_time = None
+        self.start_epoch = None          # wall clock at connect
 
         # --- CSV logging state ---
         self.save_dir = None
@@ -445,11 +449,15 @@ class TempLoggerGUI:
         self._append_sample(vals)
 
     def _append_sample(self, vals):
-        now = datetime.now()
-        ts = now.strftime("%H:%M:%S")
-        elapsed = (now - self.start_time).total_seconds()
+        # One wall-clock reading feeds both time columns and the tick
+        # label, so the CSV and the plot can never name different
+        # instants for the same sample.
+        epoch = time.time()
+        elapsed = epoch - self.start_epoch
 
-        self.hist_labels.append(ts)
+        self.hist_epoch.append(epoch)
+        self.hist_labels.append(datetime.fromtimestamp(epoch)
+                                .strftime("%H:%M:%S"))
         self.hist_elapsed.append(elapsed)
         for i, v in enumerate(vals):
             self.hist_data[i].append(v)
@@ -458,7 +466,8 @@ class TempLoggerGUI:
 
         if self.csv_writer:
             self.csv_writer.writerow(
-                [ts] + [f"{v:.2f}" if v is not None else "" for v in vals])
+                [lab_timestamp(epoch), f"{elapsed:.3f}"]
+                + [f"{v:.2f}" if v is not None else "" for v in vals])
             self.csv_file.flush()
             self.saved_rows += 1
             self.save_status.configure(text=f"saving ({self.saved_rows} rows)",
@@ -471,10 +480,11 @@ class TempLoggerGUI:
         self.n = 0
         self.esp_names = []
         self.names = []
+        self.hist_epoch = []
         self.hist_labels = []
         self.hist_elapsed = []
         self.hist_data = []
-        self.start_time = datetime.now()
+        self.start_epoch = time.time()
         self.scrub_var.set(SCRUB_MAX)     # new session starts LIVE
         self.plot_dirty = False
         for w in self.names_frame.winfo_children():
@@ -677,13 +687,21 @@ class TempLoggerGUI:
                       for i, v in enumerate(self.name_vars)]
         self.rebuild_plots()
 
+        # '#' provenance block, the same one every lab log opens with.
+        # pandas/numpy skip it with comment='#'. session_start is the
+        # CONNECT time, not when saving began, because that is the origin
+        # elapsed_s counts from and the back-fill below reaches back to it.
+        self.csv_file.write(session_header("temperature log",
+                                           self.start_epoch))
         self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(["time"] + [f"{n}_C" for n in self.names])
+        self.csv_writer.writerow(
+            ["timestamp", "elapsed_s"] + [f"{n}_C" for n in self.names])
 
         # Back-fill everything captured since connect so nothing is lost.
         self.saved_rows = 0
-        for j in range(len(self.hist_labels)):
-            row = [self.hist_labels[j]] + [
+        for j in range(len(self.hist_epoch)):
+            row = [lab_timestamp(self.hist_epoch[j]),
+                   f"{self.hist_elapsed[j]:.3f}"] + [
                 f"{self.hist_data[i][j]:.2f}"
                 if self.hist_data[i][j] is not None else ""
                 for i in range(self.n)]

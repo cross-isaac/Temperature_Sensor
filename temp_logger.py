@@ -13,9 +13,11 @@ REQUIREMENTS:
 
 import os
 import csv
+import time
 import serial
 from datetime import datetime
 import serial.tools.list_ports
+from lab_time import lab_timestamp, session_header
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
@@ -75,8 +77,12 @@ def main():
         ser.close()
         return
 
+    # Session origin for elapsed_s, fixed before the header is written so
+    # the two name the same instant. See lab_time.py for the convention.
+    start_epoch = time.time()
+    csv_file.write(session_header("RTD temperature log", start_epoch))
     writer = csv.writer(csv_file)
-    writer.writerow(["time", "tempC"])
+    writer.writerow(["timestamp", "elapsed_s", "tempC"])
     csv_file.flush()
     print(f"\nLogging to: {csv_path}")
     print("Close the plot window to stop.\n")
@@ -96,8 +102,6 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.5)
     fig.tight_layout(pad=2)
 
-    start_time = datetime.now()
-
     def update(_frame):
         # Drain everything currently in the serial buffer
         while ser.in_waiting:
@@ -110,16 +114,19 @@ def main():
                 try:
                     temp_str = raw.split(",")[1].strip()
                     tempC = float(temp_str)
-                    now = datetime.now()
-                    ts = now.strftime("%H:%M:%S")
-                    elapsed = (now - start_time).total_seconds()
+                    # One wall-clock reading feeds both CSV time columns
+                    # and the plot's tick label.
+                    epoch = time.time()
+                    ts = datetime.fromtimestamp(epoch).strftime("%H:%M:%S")
+                    elapsed = epoch - start_epoch
 
                     times.append(elapsed)
                     temps.append(tempC)
                     labels.append(ts)
 
                     # Write to CSV
-                    writer.writerow([ts, f"{tempC:.2f}"])
+                    writer.writerow([lab_timestamp(epoch), f"{elapsed:.3f}",
+                                     f"{tempC:.2f}"])
                     csv_file.flush()
 
                     print(f"[{ts}]  {tempC:.2f} °C")

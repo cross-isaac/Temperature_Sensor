@@ -19,7 +19,9 @@ sketch. Check before assuming.
 
 **PC side.** `temp_gui.py` is the recommended tool — a Tkinter GUI that handles
 any number of sensors. The CLI loggers (`temp_logger_arb.py`, `temp_logger_4.py`,
-`temp_logger.py`) remain for scripted use.
+`temp_logger.py`) remain for scripted use. All four write CSV through the same
+helpers in `lab_time.py` — keep it that way rather than reintroducing a
+per-script time format.
 
 ```
 py -m pip install -r requirements.txt
@@ -44,6 +46,20 @@ Keep that inference; don't reintroduce a fixed channel count.
 
 Sensors share the VSPI bus, each with its own chip-select line (SCK 18, MOSI 23,
 MISO 19 in `FullOven4Sensors`).
+
+## Timestamps
+
+`lab_time.py` owns the format, and it is the lab-wide one: every row carries
+`timestamp` (local wall clock `YYYY-MM-DD HH:MM:SS.mmm`) and `elapsed_s`, both
+naming the instant the sample arrived, both off the same clock, so
+`timestamp[i] - timestamp[0] == elapsed_s[i]` holds. That invariant is what
+makes a temperature trace alignable against the ion-gauge pressure log or a
+scope frame index on `timestamp` alone — don't break it by taking two separate
+clock readings for one sample.
+
+The old bare `HH:MM:SS` column is gone. It could not survive midnight, had no
+date for a multi-day bake, and no sub-second resolution to match a 1 Hz scope
+frame. Do not reintroduce it.
 
 ## Never tracked
 

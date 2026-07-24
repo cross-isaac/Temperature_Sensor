@@ -15,9 +15,11 @@ REQUIREMENTS:
 import os
 import csv
 import math
+import time
 import serial
 from datetime import datetime
 import serial.tools.list_ports
+from lab_time import lab_timestamp, session_header
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
@@ -117,8 +119,12 @@ def main():
         ser.close()
         return
 
+    # Session origin for elapsed_s, fixed before the header is written
+    # so the two name the same instant. See lab_time.py.
+    start_epoch = time.time()
+    csv_file.write(session_header('temperature log', start_epoch))
     writer = csv.writer(csv_file)
-    writer.writerow(["time"] + [f"{s}_C" for s in sensor_names])
+    writer.writerow(["timestamp", "elapsed_s"] + [f"{s}_C" for s in sensor_names])
     csv_file.flush()
     print(f"Logging to: {csv_path}")
     print("Close the plot window to stop.\n")
@@ -131,8 +137,6 @@ def main():
     times  = deque(maxlen=MAX_POINTS)
     labels = deque(maxlen=MAX_POINTS)
     data   = [deque(maxlen=MAX_POINTS) for _ in range(n)]
-
-    start_time = datetime.now()
 
     # ——— Subplots: one per sensor, shared x-axis ———
     fig, axes = plt.subplots(
@@ -174,16 +178,19 @@ def main():
 
             vals = [safe_float(p) for p in parts[1:]]
 
-            now     = datetime.now()
-            ts      = now.strftime("%H:%M:%S")
-            elapsed = (now - start_time).total_seconds()
+            # One wall-clock reading feeds both CSV time columns and
+            # the plot's tick label.
+            epoch   = time.time()
+            ts      = datetime.fromtimestamp(epoch).strftime("%H:%M:%S")
+            elapsed = epoch - start_epoch
 
             times.append(elapsed)
             labels.append(ts)
             for i, v in enumerate(vals):
                 data[i].append(float("nan") if v is None else v)
 
-            writer.writerow([ts] + [f"{v:.2f}" if v is not None else "" for v in vals])
+            writer.writerow([lab_timestamp(epoch), f"{elapsed:.3f}"]
+                            + [f"{v:.2f}" if v is not None else "" for v in vals])
             csv_file.flush()
 
             def fmt(v):

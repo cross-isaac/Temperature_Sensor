@@ -130,6 +130,43 @@ plotting. They remain for scripted/headless use.
 
 ---
 
+## CSV format
+
+Every logger — GUI and CLI — writes the same two time columns, following the
+**lab timestamp convention** shared with the Rigol scope, Rb experiment runner,
+ion-gauge pressure monitor and Alicat flow monitor:
+
+```
+# temperature log
+# session_start: 2026-07-24 09:28:50.048
+# timezone: Central Daylight Time (UTC-05:00)
+# timestamp = local wall clock when the sample arrived, elapsed_s = seconds since session_start
+timestamp,elapsed_s,RTD_C,TC1_C,TC2_C
+2026-07-24 09:28:50.212,0.165,20.00,100.00,
+```
+
+| column | format | meaning |
+| --- | --- | --- |
+| `timestamp` | `YYYY-MM-DD HH:MM:SS.mmm`, local | wall clock when the sample arrived |
+| `elapsed_s` | `%.3f` | seconds since the `session_start` in the header |
+
+Both come off the same wall clock, so `timestamp − session_start` reproduces
+`elapsed_s` exactly — that is what makes it valid to line a temperature trace up
+against a pressure or flow log on `timestamp` alone. In the GUI, `session_start`
+is the **connect** time, not when saving began, so back-filled rows carry their
+own real acquisition times.
+
+Load with `pd.read_csv(path, comment="#")`; a plain `csv.reader` needs the `#`
+lines filtered out first. An empty cell is a sensor that reported `nan` for that
+sample.
+
+This replaced a single `time` column holding a bare `HH:MM:SS`, which could not
+survive midnight, carried no date to align a multi-day bake against, and had no
+sub-second resolution to match a 1 Hz scope frame with. **CSVs written before
+this change have the old column and need reading differently.**
+
+---
+
 ## Firmware build (PlatformIO)
 
 ```bash
