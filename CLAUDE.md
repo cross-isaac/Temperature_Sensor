@@ -47,6 +47,27 @@ Keep that inference; don't reintroduce a fixed channel count.
 Sensors share the VSPI bus, each with its own chip-select line (SCK 18, MOSI 23,
 MISO 19 in `FullOven4Sensors`).
 
+## The time-window control
+
+`timenav.py` is a standalone widget, copied verbatim into
+`Ion_Gauge_Pressure_Monitor` and `Alicat_Flow_Monitor` rather than imported, so
+each repo stays runnable on its own. **Fix a bug here and check the other two
+copies.**
+
+Two rules it exists to enforce:
+
+- The Show chooser is a `ttk.Menubutton` with `direction="above"`, **not** a
+  combobox. This control is at the bottom edge of the window; a combobox drops
+  its list downward and ran off the bottom of the screen on a maximised window
+  (measured: 267 px of menu starting 77 px above a 1440 px screen edge). Opening
+  upward is correct by construction — don't "simplify" it back to a combobox.
+- The view is stored as a window length plus an **absolute** end time, not as a
+  slider fraction. A fraction of a span that keeps growing drifts left every
+  time a sample arrives, which would make a typed range refuse to stay put.
+
+Tk's `after` timers keep firing while the menu is posted (verified), so the plot
+refresh and serial drain are not interrupted by opening it.
+
 ## Timestamps
 
 `lab_time.py` owns the format, and it is the lab-wide one: every row carries

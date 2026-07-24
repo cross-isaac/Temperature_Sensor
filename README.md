@@ -113,12 +113,32 @@ Workflow:
    writing CSV. Any data captured before you started saving is written too, so
    nothing between connect and save is lost.
 
-Viewing controls below the plot: **Show** picks how much time is visible
-(*All* = everything since connect) and the **End of view** slider scrubs where
-the view ends (far right = LIVE, following incoming data) — so you can view
-start→now, start→any earlier point, or just the last few minutes. The control
-panel is resizable via the sash between it and the plot, and can be hidden
-with the *Hide panel* button. See [`temp_gui.py`](temp_gui.py) for other
+### Time window / time travel
+
+The controls under the plot ([`timenav.py`](timenav.py)) are two independent
+knobs: *how much* time is on screen, and *where that view ends*.
+
+- **Show** — `All`, a preset, or `Custom…` for any duration you type:
+  `45 s`, `2.5 min`, `1h30m`, `4 hours`, `1:30:00`. A bare number means
+  seconds.
+- **End of view** — drag to freeze the view at an earlier moment; far right
+  snaps back to **LIVE** and follows incoming data. **Go live** returns there.
+- **Range…** — pin an exact start and end. Each field takes a clock time
+  (`14:05`, `14:05:30`, or with a date), `+2 min` from the session start,
+  `-30 s` back from the newest sample, or the words `start` / `now`. The
+  dialog shows the span your data actually covers.
+
+So *All* + LIVE is start→now, *All* + scrub is start→any earlier point, a short
+window + LIVE is just the recent data, and a typed range is exactly that range —
+it stays put as new samples arrive rather than sliding. The line under the
+controls always spells out what is on screen.
+
+The **Show** menu opens *upward*. It has to: this control sits at the bottom of
+the window, and a downward-opening list ran off the bottom of the screen when
+the window was maximised, making the lower entries unreachable.
+
+The control panel is resizable via the sash between it and the plot, and can be
+hidden with the *Hide panel* button. See [`temp_gui.py`](temp_gui.py) for other
 options (separate vs. overlaid plots, etc.).
 
 ### 3. Or use a CLI logger

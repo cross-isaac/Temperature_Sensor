@@ -10,13 +10,15 @@ number of sensors and is built around this workflow:
     3. Rename the sensors while data is already streaming.
     4. Choose a folder + file name and Start saving to write CSV.
 
-Viewing controls (below the plot): the "Show" box picks how much time is
-visible (All = everything since connect) and the "End of view" slider chooses
-where that view ends -- far right is LIVE (follows incoming data); anywhere
-left of that freezes the view at an earlier moment. So All+LIVE is start-to-
-now, All+scrub is start-to-some-point, and a short window+LIVE is just-the-
-recent-data. The control panel and the plot are separated by a draggable
-sash, and the panel can be hidden entirely with the button above the plot.
+Viewing controls (below the plot, in `timenav.TimeNav`): "Show" picks how much
+time is visible (All = everything since connect, a preset, or any duration you
+type) and the "End of view" slider chooses where that view ends -- far right is
+LIVE (follows incoming data); anywhere left of that freezes the view at an
+earlier moment. So All+LIVE is start-to-now, All+scrub is start-to-some-point,
+and a short window+LIVE is just-the-recent-data. "Range..." pins an exact
+start and end by clock time. The control panel and the plot are separated by a
+draggable sash, and the panel can be hidden entirely with the button above the
+plot.
 
 Serial protocol (115200 baud), shared with the CLI loggers:
     Header (optional):  T,RTD,TC1,TC2,TC3      (fields are non-numeric names)
@@ -36,7 +38,6 @@ import csv
 import math
 import time
 import queue
-import bisect
 import threading
 from datetime import datetime
 
@@ -47,6 +48,7 @@ import serial
 import serial.tools.list_ports
 
 from lab_time import lab_timestamp, session_header
+from timenav import TimeNav
 
 import matplotlib
 matplotlib.use("TkAgg")
@@ -58,12 +60,6 @@ BAUD_RATE  = 115200
 MAX_PLOT_POINTS = 1500    # max points drawn; longer views are decimated
 PLOT_MS    = 500          # plot redraw interval (ms)
 POLL_MS    = 50           # serial-queue drain interval (ms)
-
-# "Show" choices for the time window (label, seconds); None = everything.
-WINDOW_CHOICES = [("All", None), ("30 s", 30), ("1 min", 60), ("2 min", 120),
-                  ("5 min", 300), ("15 min", 900), ("30 min", 1800),
-                  ("1 h", 3600), ("4 h", 14400), ("12 h", 43200)]
-SCRUB_MAX = 1000          # resolution of the end-of-view slider
 
 COLORS = ["steelblue", "tomato", "seagreen", "darkorange", "mediumpurple",
           "gold", "deeppink", "cyan", "olive", "slategray", "crimson",
@@ -273,36 +269,10 @@ class TempLoggerGUI:
         self._show_placeholder()
 
     def _build_timenav(self, parent):
-        f = ttk.LabelFrame(parent, text="Time window")
-        f.pack(side="bottom", fill="x", pady=(4, 0))
-        row = ttk.Frame(f)
-        row.pack(fill="x", padx=6, pady=4)
-
-        ttk.Label(row, text="Show:").pack(side="left")
-        self.window_var = tk.StringVar(value="All")
-        wb = ttk.Combobox(row, textvariable=self.window_var, width=7,
-                          state="readonly",
-                          values=[lbl for lbl, _ in WINDOW_CHOICES])
-        wb.pack(side="left", padx=(4, 16))
-        wb.bind("<<ComboboxSelected>>", lambda _e: self._mark_dirty())
-
-        ttk.Label(row, text="End of view:").pack(side="left")
-        self.scrub_var = tk.DoubleVar(value=SCRUB_MAX)
-        self.scrub = ttk.Scale(row, from_=0, to=SCRUB_MAX,
-                               variable=self.scrub_var,
-                               command=lambda _v: self._mark_dirty())
-        self.scrub.pack(side="left", fill="x", expand=True, padx=6)
-        self.scrub_lbl = ttk.Label(row, text="LIVE", width=9,
-                                   foreground="#2e7d32")
-        self.scrub_lbl.pack(side="left")
-        ttk.Button(row, text="Go live", width=8,
-                   command=self._go_live).pack(side="left", padx=(4, 0))
+        self.timenav = TimeNav(parent, on_change=self._mark_dirty)
+        self.timenav.pack(side="bottom", fill="x", pady=(4, 0))
 
     def _mark_dirty(self):
-        self.plot_dirty = True
-
-    def _go_live(self):
-        self.scrub_var.set(SCRUB_MAX)
         self.plot_dirty = True
 
     def _show_placeholder(self):
@@ -485,7 +455,7 @@ class TempLoggerGUI:
         self.hist_elapsed = []
         self.hist_data = []
         self.start_epoch = time.time()
-        self.scrub_var.set(SCRUB_MAX)     # new session starts LIVE
+        self.timenav.go_live()            # a new session starts LIVE
         self.plot_dirty = False
         for w in self.names_frame.winfo_children():
             w.destroy()
@@ -582,34 +552,14 @@ class TempLoggerGUI:
         self.plot_dirty = True
         self.canvas.draw_idle()
 
-    def _window_seconds(self):
-        for lbl, secs in WINDOW_CHOICES:
-            if lbl == self.window_var.get():
-                return secs
-        return None
-
-    def _view_range(self):
-        """History slice (i0, i1, live) for the current time controls.
-
-        The scrub slider maps [0..SCRUB_MAX] onto [first sample .. newest];
-        at the far right the view is LIVE and follows incoming data.
-        """
-        t0, t1 = self.hist_elapsed[0], self.hist_elapsed[-1]
-        frac = self.scrub_var.get() / SCRUB_MAX
-        live = frac >= 0.999
-        t_end = t1 if live else t0 + (t1 - t0) * frac
-        w = self._window_seconds()
-        t_start = t0 if w is None else max(t0, t_end - w)
-        i0 = bisect.bisect_left(self.hist_elapsed, t_start)
-        i1 = bisect.bisect_right(self.hist_elapsed, t_end)
-        if i1 <= i0:                      # always show at least one sample
-            i1 = min(i0 + 1, len(self.hist_elapsed))
-            i0 = i1 - 1
-        return i0, i1, live
-
     def _refresh_plot(self):
         if self.plot_dirty and self.n and self.hist_elapsed:
-            i0, i1, live = self._view_range()
+            # Hand the widget the current data extent, then ask it which
+            # samples to draw -- it owns the window / scrub / custom-range
+            # model, including whether the view is still live.
+            self.timenav.set_span(self.hist_elapsed[0], self.hist_elapsed[-1],
+                                  epoch0=self.start_epoch)
+            i0, i1 = self.timenav.slice(self.hist_elapsed)
             step = max(1, (i1 - i0) // MAX_PLOT_POINTS)
             t = self.hist_elapsed[i0:i1:step]
             lbls = self.hist_labels[i0:i1:step]
@@ -637,10 +587,9 @@ class TempLoggerGUI:
             bottom.set_xticklabels([lbls[j] for j in idx],
                                    rotation=30, ha="right", fontsize=8)
 
-            if live:
-                self.scrub_lbl.configure(text="LIVE", foreground="#2e7d32")
-            else:
-                self.scrub_lbl.configure(text=lbls[-1], foreground="#c62828")
+            self.fig.suptitle(
+                "Temperature — Live" if self.timenav.is_live
+                else "Temperature — viewing the past", fontsize=12)
 
             self.canvas.draw_idle()
             self.plot_dirty = False
